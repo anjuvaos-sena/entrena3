@@ -9,6 +9,7 @@ https://docs.djangoproject.com/en/6.1/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.1/ref/settings/
 """
+from django.core.exceptions import ImproperlyConfigured
 from django.core.management.utils import get_random_secret_key
 from pathlib import Path
 import os
@@ -120,9 +121,51 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 STATICFILES_DIRS = [BASE_DIR / 'static']
+
+STORAGES = {
+    'default': {
+        'BACKEND': 'django.core.files.storage.FileSystemStorage',
+    },
+    'staticfiles': {
+        'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage',
+    },
+}
+
 if not DEBUG:
     STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
-    STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+    STORAGES['staticfiles'] = {
+        'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage',
+    }
+
+    required_s3_settings = (
+        'SUPABASE_S3_ENDPOINT',
+        'SUPABASE_S3_ACCESS_KEY_ID',
+        'SUPABASE_S3_SECRET_ACCESS_KEY',
+    )
+    missing_s3_settings = [
+        setting for setting in required_s3_settings if not os.environ.get(setting)
+    ]
+    if missing_s3_settings:
+        raise ImproperlyConfigured(
+            'Missing Supabase S3 environment variables: '
+            + ', '.join(missing_s3_settings)
+        )
+
+    STORAGES['default'] = {
+        'BACKEND': 'storages.backends.s3.S3Storage',
+        'OPTIONS': {
+            'access_key': os.environ['SUPABASE_S3_ACCESS_KEY_ID'],
+            'secret_key': os.environ['SUPABASE_S3_SECRET_ACCESS_KEY'],
+            'endpoint_url': os.environ['SUPABASE_S3_ENDPOINT'],
+            'bucket_name': os.environ.get('SUPABASE_S3_BUCKET', 'eni-bucket'),
+            'region_name': os.environ.get('SUPABASE_S3_REGION', 'us-east-1'),
+            'signature_version': 's3v4',
+            'addressing_style': 'path',
+            'default_acl': None,
+            'querystring_auth': True,
+            'file_overwrite': False,
+        },
+    }
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
